@@ -4,7 +4,11 @@
 
 ## 功能
 
-- 支持多种音频/视频链接（YouTube、播客 RSS 直链、各大平台链接等）
+- 支持多种播客平台:
+  - **小宇宙** (`xiaoyuzhoufm.com/episode/...`)
+  - **Apple Podcasts** (`podcasts.apple.com/...`)
+  - **YouTube** 及其他 yt-dlp 支持的平台
+  - 任意音频直链
 - 使用 OpenAI Whisper 开源模型进行语音识别
 - 支持多语言（中文、英文等）
 - 输出纯文本逐字稿，附带时间戳
@@ -29,7 +33,13 @@ sudo apt install ffmpeg
 ## 使用方法
 
 ```bash
-# 基本用法：输入播客链接，输出逐字稿
+# 小宇宙播客
+python transcribe.py "https://www.xiaoyuzhoufm.com/episode/xxx"
+
+# Apple Podcasts
+python transcribe.py "https://podcasts.apple.com/cn/podcast/xxx/id123?i=456"
+
+# YouTube 或其他平台
 python transcribe.py <播客音频链接>
 
 # 指定 Whisper 模型大小（tiny/base/small/medium/large）
