@@ -1,6 +1,6 @@
 # Podcast Transcription Tool
 
-将播客音频转换为逐字稿的命令行工具。
+将播客音频转换为带说话人标注的逐字稿，方便粘贴给 Claude 整理成可读长文。
 
 ## 功能
 
@@ -11,9 +11,8 @@
   - 任意音频直链
 - 使用 OpenAI Whisper 开源模型进行语音识别
 - 支持多语言（中文、英文等）
-- 输出纯文本逐字稿，附带时间戳
 - **`--diarize` 模式**：使用 pyannote.audio 进行说话人分离（声纹识别"谁在说话"）
-- **`--polish` 模式**：使用 Claude 将逐字稿整理为可读的口述长文（自动启用说话人分离）
+- 输出带说话人标签的逐字稿，直接粘贴给 Claude 即可整理为口述长文
 
 ## 安装
 
@@ -32,9 +31,7 @@ sudo apt install ffmpeg
 # 从 https://ffmpeg.org/download.html 下载并添加到 PATH
 ```
 
-### 说话人分离准备（可选）
-
-使用 `--diarize` 或 `--polish` 时需要：
+### 说话人分离准备（使用 `--diarize` 时需要）
 
 1. 注册 [HuggingFace](https://huggingface.co/) 账号
 2. 前往 [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) 接受使用条款
@@ -72,10 +69,17 @@ python transcribe.py <链接> --diarize --language zh
 # 指定说话人数量（可选，提高准确率）
 python transcribe.py <链接> --diarize --num-speakers 3
 
-# 整理为可读口述长文（自动启用说话人分离）
-export HF_TOKEN='your-huggingface-token'
-export ANTHROPIC_API_KEY='your-api-key'
-python transcribe.py <链接> --polish --model medium --language zh -o article.txt
+# 推荐用法：说话人分离 + 中文 + medium 模型 + 输出文件
+python transcribe.py <链接> --diarize --model medium --language zh -o transcript.txt
+```
+
+## 推荐工作流
+
+```
+1. 生成逐字稿
+   python transcribe.py <链接> --diarize --model medium --language zh -o transcript.txt
+
+2. 把 transcript.txt 的内容粘贴给 Claude（Max 额度），让它整理成口述长文
 ```
 
 ## 模型选择指南
@@ -106,17 +110,4 @@ python transcribe.py <链接> --polish --model medium --language zh -o article.t
 [00:00:15] **说话人2**：大家好，很高兴来到这个节目。
 
 [00:00:20] **说话人1**：你能不能先给大家讲讲，从你的视角来看，过去一年最大的变化是什么？
-```
-
-### 口述长文模式（`--polish`）
-
-```
-**主持人**：大家好，欢迎收听本期播客。今天我们要聊的话题是人工智能的最新发展。
-首先让我介绍一下今天的嘉宾，他是某某公司的 CTO 张三。
-
-**张三**：大家好，很高兴来到这个节目。其实我最近一直在关注大语言模型的进展，
-特别是在代码生成这个方向上，变化非常大。
-
-**主持人**：对，这也是我们今天想深入聊的。你能不能先给大家讲讲，从你的视角来看，
-过去一年最大的变化是什么？
 ```
