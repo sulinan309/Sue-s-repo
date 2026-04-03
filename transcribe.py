@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""播客转录工具 - 将播客音频链接转换为逐字稿"""
+"""播客转录工具 - 将播客音频链接转换为逐字稿，并可选整理为可读长文"""
 
 import argparse
 import json
@@ -11,6 +11,7 @@ import time
 import urllib.request
 import urllib.error
 
+import anthropic
 import whisper
 import yt_dlp
 
@@ -386,6 +387,97 @@ def format_transcript(result: dict, show_timestamps: bool) -> str:
     return "\n".join(lines)
 
 
+# ── 润色：逐字稿 → 可读长文 ─────────────────────────────────
+
+POLISH_SYSTEM_PROMPT = """\
+你是一位专业的播客内容编辑。你的任务是将播客逐字稿整理成一篇高可读性的口述风格长文。
+
+## 要求
+
+1. **识别说话人**：根据上下文语气、称谓、角色（主持人/嘉宾）区分不同说话人。
+   如果无法确定具体姓名，使用"主持人""嘉宾A""嘉宾B"等标记。
+
+2. **合并碎片**：逐字稿中的句子常被切碎，请将同一人连续的发言合并为完整的段落。
+
+3. **保留原意**：不要增删观点或信息。可以：
+   - 去除口头禅、重复词、无意义的语气词（"嗯""啊""就是说"）
+   - 修正明显的语音识别错误
+   - 让句子更通顺
+
+4. **输出格式**：
+   ```
+   **说话人名字**：发言内容发言内容发言内容。
+
+   **说话人名字**：发言内容发言内容发言内容。
+   ```
+   每次说话人切换时换段。同一人的连续发言合为一段。
+
+5. **不要**添加总结、标题、引言或任何原文中没有的内容。直接输出整理后的正文。\
+"""
+
+
+def polish_transcript(transcript: str, title: str) -> str:
+    """使用 Claude 将逐字稿整理为可读的口述长文
+
+    需要设置环境变量 ANTHROPIC_API_KEY。
+    对于长逐字稿，自动分段处理后拼接。
+    """
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        print("错误: 使用 --polish 需要设置 ANTHROPIC_API_KEY 环境变量", file=sys.stderr)
+        print("  export ANTHROPIC_API_KEY='your-api-key'", file=sys.stderr)
+        sys.exit(1)
+
+    client = anthropic.Anthropic(api_key=api_key)
+
+    # 将逐字稿按行分割，分成若干段（每段约 3000 行以内，避免超出上下文）
+    lines = transcript.split("\n")
+    chunks = _split_into_chunks(lines, max_lines=3000)
+
+    print(f"正在整理逐字稿为可读长文（共 {len(chunks)} 段）...")
+    start = time.time()
+
+    polished_parts = []
+    for i, chunk in enumerate(chunks):
+        if len(chunks) > 1:
+            print(f"  处理第 {i + 1}/{len(chunks)} 段...")
+
+        chunk_text = "\n".join(chunk)
+        user_prompt = f"以下是播客「{title}」的逐字稿，请整理为可读的口述长文：\n\n{chunk_text}"
+
+        # 如果不是第一段，提供上一段末尾作为上下文衔接
+        if i > 0 and polished_parts:
+            last_part_tail = polished_parts[-1][-500:]
+            user_prompt = (
+                f"（接上文，上一段末尾：「{last_part_tail}」）\n\n"
+                f"请继续整理以下逐字稿：\n\n{chunk_text}"
+            )
+
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=16000,
+            system=POLISH_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": user_prompt}],
+        )
+
+        polished_parts.append(message.content[0].text)
+
+    elapsed = time.time() - start
+    print(f"整理完成 ({elapsed:.1f}s)")
+
+    return "\n\n".join(polished_parts)
+
+
+def _split_into_chunks(lines: list[str], max_lines: int) -> list[list[str]]:
+    """将行列表分成若干段，每段不超过 max_lines 行"""
+    if len(lines) <= max_lines:
+        return [lines]
+    chunks = []
+    for i in range(0, len(lines), max_lines):
+        chunks.append(lines[i:i + max_lines])
+    return chunks
+
+
 # ── 主程序 ──────────────────────────────────────────────────
 
 
@@ -408,6 +500,10 @@ def main():
     parser.add_argument(
         "--no-timestamps", action="store_true", help="不显示时间戳"
     )
+    parser.add_argument(
+        "--polish", action="store_true",
+        help="使用 Claude 将逐字稿整理为可读的口述长文（需要 ANTHROPIC_API_KEY）",
+    )
 
     args = parser.parse_args()
 
@@ -426,16 +522,19 @@ def main():
             print(f"转录失败: {e}", file=sys.stderr)
             sys.exit(1)
 
-    # 3. 格式化输出
+    # 3. 格式化逐字稿
     transcript = format_transcript(result, show_timestamps=not args.no_timestamps)
 
-    header = f"# {title}\n\n"
-    full_output = header + transcript
+    # 4. 可选：润色为可读长文
+    if args.polish:
+        full_output = f"# {title}\n\n" + polish_transcript(transcript, title)
+    else:
+        full_output = f"# {title}\n\n" + transcript
 
     if args.output:
         with open(args.output, "w", encoding="utf-8") as f:
             f.write(full_output)
-        print(f"\n逐字稿已保存到: {args.output}")
+        print(f"\n{'口述长文' if args.polish else '逐字稿'}已保存到: {args.output}")
     else:
         print("\n" + "=" * 60)
         print(full_output)
