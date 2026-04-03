@@ -1,113 +1,149 @@
-# Podcast Transcription Tool
+# Podcast Research System 播客投研系统
 
-将播客音频转换为带说话人标注的逐字稿，方便粘贴给 Claude 整理成可读长文。
+将英文投资/科技播客转化为可操作的投研情报。
 
-## 功能
+```
+监控 RSS 新节目 → 下载音频 → 转录 + 说话人分离 → 翻译为中文 → 五维投研分析
+```
 
-- 支持多种播客平台:
-  - **小宇宙** (`xiaoyuzhoufm.com/episode/...`)
-  - **Apple Podcasts** (`podcasts.apple.com/...`)
-  - **YouTube** 及其他 yt-dlp 支持的平台
-  - 任意音频直链
-- 使用 OpenAI Whisper 开源模型进行语音识别
-- 支持多语言（中文、英文等）
-- **`--diarize` 模式**：使用 pyannote.audio 进行说话人分离（声纹识别"谁在说话"）
-- 输出带说话人标签的逐字稿，直接粘贴给 Claude 即可整理为口述长文
+## 核心模块
+
+| 模块 | 功能 | 命令 |
+|------|------|------|
+| `monitor.py` | 检查关注播客的新节目 | `python monitor.py` |
+| `transcribe.py` | 音频转录 + 说话人分离 | `python transcribe.py <url>` |
+| `translate.py` | 英文逐字稿 → 中文 | `python translate.py input.txt` |
+| `analyze.py` | 五维投研分析 | `python analyze.py input.txt` |
+| `pipeline.py` | 一键全流程 | `python pipeline.py run <url>` |
 
 ## 安装
 
 ```bash
-# 1. 安装 Python 依赖
 pip install -r requirements.txt
 
-# 2. 安装 ffmpeg（Whisper 需要）
-# macOS
-brew install ffmpeg
-
-# Ubuntu/Debian
-sudo apt install ffmpeg
-
-# Windows
-# 从 https://ffmpeg.org/download.html 下载并添加到 PATH
+# ffmpeg（Whisper 需要）
+# macOS: brew install ffmpeg
+# Ubuntu: sudo apt install ffmpeg
 ```
 
-### 说话人分离准备（使用 `--diarize` 时需要）
+### 环境变量
 
-1. 注册 [HuggingFace](https://huggingface.co/) 账号
-2. 前往 [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) 接受使用条款
-3. 同样接受 [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0) 的条款
-4. 设置环境变量：`export HF_TOKEN='your-huggingface-token'`
+```bash
+# 翻译和分析需要（等你解决 API 问题后设置）
+export ANTHROPIC_API_KEY='your-api-key'
+
+# 说话人分离需要
+export HF_TOKEN='your-huggingface-token'
+# 需先在 HuggingFace 接受 pyannote/speaker-diarization-3.1 和
+# pyannote/segmentation-3.0 的使用条款
+```
 
 ## 使用方法
 
+### 1. 每日简报：看看今天有什么新节目
+
 ```bash
-# 小宇宙播客
-python transcribe.py "https://www.xiaoyuzhoufm.com/episode/xxx"
+# 检查所有关注播客的最新节目
+python pipeline.py daily
 
-# Apple Podcasts
-python transcribe.py "https://podcasts.apple.com/cn/podcast/xxx/id123?i=456"
+# 检查最近 3 天的更新
+python pipeline.py daily --days 3
 
-# YouTube 或其他平台
-python transcribe.py <播客音频链接>
-
-# 指定 Whisper 模型大小（tiny/base/small/medium/large）
-python transcribe.py <链接> --model medium
-
-# 指定输出文件
-python transcribe.py <链接> -o output.txt
-
-# 指定语言（跳过自动检测，加快速度）
-python transcribe.py <链接> --language zh
-
-# 不显示时间戳
-python transcribe.py <链接> --no-timestamps
-
-# 启用说话人分离（识别谁在说话）
-export HF_TOKEN='your-huggingface-token'
-python transcribe.py <链接> --diarize --language zh
-
-# 指定说话人数量（可选，提高准确率）
-python transcribe.py <链接> --diarize --num-speakers 3
-
-# 推荐用法：说话人分离 + 中文 + medium 模型 + 输出文件
-python transcribe.py <链接> --diarize --model medium --language zh -o transcript.txt
+# 只看投资类
+python pipeline.py daily --category investment
 ```
 
-## 推荐工作流
-
+输出示例：
 ```
-1. 生成逐字稿
-   python transcribe.py <链接> --diarize --model medium --language zh -o transcript.txt
+# 播客投研日报 (2026-04-03)
+共 5 集新节目
 
-2. 把 transcript.txt 的内容粘贴给 Claude（Max 额度），让它整理成口述长文
-```
+## 💰 投资
+- [04-03] All-In Podcast (01:23:45)
+  E230: AI Infrastructure Spending is Out of Control
+  🔗 https://...
 
-## 模型选择指南
-
-| 模型 | 大小 | 速度 | 准确度 | 适用场景 |
-|------|------|------|--------|----------|
-| tiny | ~39 MB | 最快 | 较低 | 快速预览 |
-| base | ~74 MB | 快 | 一般 | 日常使用 |
-| small | ~244 MB | 中等 | 较好 | 推荐入门 |
-| medium | ~769 MB | 较慢 | 好 | 推荐中文 |
-| large | ~1550 MB | 最慢 | 最好 | 追求精度 |
-
-## 输出示例
-
-### 普通模式（默认）
-
-```
-[00:00:00] 大家好，欢迎收听本期播客。
-[00:00:05] 今天我们要聊的话题是人工智能的最新发展。
-[00:00:12] 首先让我介绍一下今天的嘉宾。
+## 🔬 科技
+- [04-02] No Priors
+  The Future of AI Agents with ...
+  🔗 https://...
 ```
 
-### 说话人分离模式（`--diarize`）
+### 2. 完整投研分析：一键处理单集播客
 
+```bash
+# 全流程：下载 → 转录 → 翻译 → 分析
+python pipeline.py run "https://播客链接"
+
+# 只转录不翻译不分析（API 没配好时用这个）
+python pipeline.py transcribe "https://播客链接"
+
+# 跳过翻译（播客本身是中文的）
+python pipeline.py run "https://中文播客链接" --language zh --skip-translate
 ```
-[00:00:00] **说话人1**：大家好，欢迎收听本期播客。今天我们要聊的话题是人工智能的最新发展。首先让我介绍一下今天的嘉宾，他是某某公司的 CTO 张三。
 
-[00:00:15] **说话人2**：大家好，很高兴来到这个节目。
-
-[00:00:20] **说话人1**：你能不能先给大家讲讲，从你的视角来看，过去一年最大的变化是什么？
+输出到 `output/` 目录：
 ```
+output/
+  Episode_Title_transcript.txt   ← 带说话人标签的英文逐字稿
+  Episode_Title_zh.txt           ← 中文翻译
+  Episode_Title_analysis.txt     ← 五维投研分析
+```
+
+### 3. 半自动模式（无 API 时）
+
+```bash
+# 只生成逐字稿
+python pipeline.py transcribe "https://播客链接"
+
+# 然后手动把逐字稿粘贴给 Claude Max 做翻译和分析
+```
+
+### 4. 单独使用各模块
+
+```bash
+# 单独检查 RSS
+python monitor.py --days 7
+
+# 单独转录
+python transcribe.py "https://播客链接" --diarize --model medium -o transcript.txt
+
+# 单独翻译
+python translate.py transcript.txt -o translated.txt
+
+# 单独分析
+python analyze.py translated.txt -o analysis.txt
+```
+
+## 五维投研分析框架
+
+对每期播客输出：
+
+| 维度 | 回答的问题 |
+|------|-----------|
+| **核心结论** | 他们在押什么？看多/看空什么？ |
+| **关键论据** | 为什么？数据和逻辑链是什么？ |
+| **隐含假设** | 观点成立必须依赖哪些未明说的前提？ |
+| **反证条件** | 如果错，会错在哪？什么信号意味着该撤？ |
+| **未讨论问题** | 他们没说但你该问的是什么？ |
+
+## 关注的播客
+
+编辑 `podcasts.yaml` 添加或删除播客。当前列表：
+
+**投资**: All-In, Invest Like the Best, Acquired, Prof G, Meb Faber, Capital Allocators, We Study Billionaires
+
+**宏观**: Bloomberg Odd Lots, Morgan Stanley Thoughts on the Market
+
+**科技**: Lex Fridman, a16z, BG2Pod, No Priors, Stratechery
+
+**加密**: Bankless, The Chopping Block
+
+## Whisper 模型选择
+
+| 模型 | 大小 | 推荐场景 |
+|------|------|----------|
+| base | ~74 MB | 快速预览 |
+| small | ~244 MB | 英文播客日常 |
+| medium | ~769 MB | **推荐**，中英文均好 |
+| large | ~1550 MB | 追求极致准确 |

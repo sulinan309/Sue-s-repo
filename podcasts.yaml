@@ -1,0 +1,87 @@
+# 播客投研系统 - 关注播客列表
+# 每个播客需要提供 name, rss_url, category
+# category: investment（投资）, tech（科技）, macro（宏观经济）, crypto（加密货币）
+
+podcasts:
+  # ── 投资 ──────────────────────────────────────────────
+  - name: "All-In Podcast"
+    rss_url: "https://feeds.megaphone.fm/all-in-with-chamath-jason-sacks-and-friedberg"
+    category: investment
+    description: "Chamath, Jason, Sacks & Friedberg 四人谈科技投资与时事"
+
+  - name: "Invest Like the Best"
+    rss_url: "https://feeds.megaphone.fm/investlikethebest"
+    category: investment
+    description: "Patrick O'Shaughnessy 深度对话顶级投资人"
+
+  - name: "Acquired"
+    rss_url: "https://feeds.megaphone.fm/acquired"
+    category: investment
+    description: "Ben Gilbert & David Rosenthal 拆解伟大公司的故事"
+
+  - name: "The Prof G Pod"
+    rss_url: "https://feeds.megaphone.fm/profgpod"
+    category: investment
+    description: "Scott Galloway 谈商业、科技与市场趋势"
+
+  - name: "Odd Lots (Bloomberg)"
+    rss_url: "https://feeds.megaphone.fm/oddlots"
+    category: macro
+    description: "Bloomberg 出品，深挖市场异常现象与宏观经济"
+
+  - name: "Thoughts on the Market (Morgan Stanley)"
+    rss_url: "https://feeds.megaphone.fm/morganstanley-thoughts"
+    category: macro
+    description: "Morgan Stanley 首席策略师每日市场观点"
+
+  - name: "The Meb Faber Show"
+    rss_url: "https://feeds.megaphone.fm/mebfaber"
+    category: investment
+    description: "Meb Faber 对话对冲基金、VC、资产管理大佬"
+
+  - name: "Capital Allocators"
+    rss_url: "https://feeds.megaphone.fm/capitalallocators"
+    category: investment
+    description: "Ted Seides 对话全球顶级资产配置者"
+
+  - name: "We Study Billionaires"
+    rss_url: "https://feeds.megaphone.fm/TIP"
+    category: investment
+    description: "The Investor's Podcast 研究巴菲特等投资大师的策略"
+
+  # ── 科技 ──────────────────────────────────────────────
+  - name: "Lex Fridman Podcast"
+    rss_url: "https://lexfridman.com/feed/podcast/"
+    category: tech
+    description: "Lex Fridman 与 AI、科学、哲学领域顶级人物深度对话"
+
+  - name: "a16z Podcast"
+    rss_url: "https://feeds.megaphone.fm/a16zpodcast"
+    category: tech
+    description: "Andreessen Horowitz 出品，前沿科技趋势"
+
+  - name: "BG2Pod (Bill Gurley & Brad Gerstner)"
+    rss_url: "https://feeds.megaphone.fm/bg2pod"
+    category: tech
+    description: "Bill Gurley 和 Brad Gerstner 谈科技投资"
+
+  - name: "No Priors"
+    rss_url: "https://feeds.megaphone.fm/no-priors"
+    category: tech
+    description: "Elad Gil & Sarah Guo 聊 AI 创业与前沿技术"
+
+  - name: "Stratechery"
+    rss_url: "https://stratechery.passport.online/feed/podcast/SCP6yONoWK"
+    category: tech
+    description: "Ben Thompson 的科技商业战略分析"
+
+  # ── 加密货币 ──────────────────────────────────────────
+  - name: "Bankless"
+    rss_url: "https://feeds.megaphone.fm/bankless"
+    category: crypto
+    description: "Ryan & David 深度解读 crypto 和 DeFi"
+
+  - name: "The Chopping Block"
+    rss_url: "https://feeds.megaphone.fm/the-chopping-block"
+    category: crypto
+    description: "Haseeb, Tom, Robert & Tarun 谈 crypto 投资与行业"
