@@ -346,8 +346,15 @@ def download_audio(url: str, output_dir: str) -> tuple[str, str]:
 # ── 转录 ────────────────────────────────────────────────────
 
 
-def transcribe_audio(audio_path: str, model_name: str, language: str | None) -> dict:
-    """使用 Whisper 模型转录音频，返回转录结果"""
+def transcribe_audio(
+    audio_path: str, model_name: str, language: str | None, diarize: bool = False,
+    hf_token: str | None = None, num_speakers: int | None = None,
+) -> list[dict]:
+    """转录音频，返回片段列表。
+
+    每个片段为 {"start": float, "end": float, "text": str, "speaker": str|None}。
+    当 diarize=True 时，使用 pyannote.audio 进行说话人分离并为每个片段标注 speaker。
+    """
     print(f"正在加载 Whisper 模型: {model_name}")
     model = whisper.load_model(model_name)
 
@@ -358,10 +365,103 @@ def transcribe_audio(audio_path: str, model_name: str, language: str | None) -> 
     if language:
         options["language"] = language
 
-    result = model.transcribe(audio_path, **options)
+    whisper_result = model.transcribe(audio_path, **options)
     elapsed = time.time() - start
     print(f"转录完成 ({elapsed:.1f}s)")
-    return result
+
+    # 构建片段列表
+    segments = []
+    for seg in whisper_result["segments"]:
+        text = seg["text"].strip()
+        if not text:
+            continue
+        segments.append({
+            "start": seg["start"],
+            "end": seg["end"],
+            "text": text,
+            "speaker": None,
+        })
+
+    # 说话人分离
+    if diarize:
+        segments = _assign_speakers(audio_path, segments, hf_token, num_speakers)
+
+    return segments
+
+
+def _assign_speakers(
+    audio_path: str, segments: list[dict],
+    hf_token: str | None, num_speakers: int | None,
+) -> list[dict]:
+    """使用 pyannote.audio 进行说话人分离，将 speaker 标签写入每个片段"""
+    try:
+        from pyannote.audio import Pipeline
+    except ImportError:
+        print("错误: 说话人分离需要安装 pyannote.audio", file=sys.stderr)
+        print("  pip install pyannote.audio", file=sys.stderr)
+        sys.exit(1)
+
+    if not hf_token:
+        hf_token = os.environ.get("HF_TOKEN")
+    if not hf_token:
+        print("错误: 说话人分离需要 HuggingFace token", file=sys.stderr)
+        print("  export HF_TOKEN='your-huggingface-token'", file=sys.stderr)
+        print("  并在 https://huggingface.co/pyannote/speaker-diarization-3.1 接受使用条款", file=sys.stderr)
+        sys.exit(1)
+
+    print("正在进行说话人分离...")
+    start = time.time()
+
+    pipeline = Pipeline.from_pretrained(
+        "pyannote/speaker-diarization-3.1",
+        use_auth_token=hf_token,
+    )
+
+    diarize_params = {}
+    if num_speakers:
+        diarize_params["num_speakers"] = num_speakers
+
+    diarization = pipeline(audio_path, **diarize_params)
+
+    # 构建说话人时间轴: [(start, end, speaker), ...]
+    speaker_timeline = []
+    for turn, _, speaker in diarization.itertracks(yield_label=True):
+        speaker_timeline.append((turn.start, turn.end, speaker))
+
+    # 为每个 Whisper 片段分配说话人（取重叠最多的）
+    for seg in segments:
+        seg_start = seg["start"]
+        seg_end = seg["end"]
+        best_speaker = None
+        best_overlap = 0.0
+
+        for sp_start, sp_end, speaker in speaker_timeline:
+            overlap_start = max(seg_start, sp_start)
+            overlap_end = min(seg_end, sp_end)
+            overlap = max(0.0, overlap_end - overlap_start)
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_speaker = speaker
+
+        seg["speaker"] = best_speaker or "UNKNOWN"
+
+    # 重命名 speaker 标签为更友好的名字 (SPEAKER_00 → 说话人1)
+    unique_speakers = []
+    for seg in segments:
+        if seg["speaker"] not in unique_speakers:
+            unique_speakers.append(seg["speaker"])
+
+    speaker_map = {}
+    for i, sp in enumerate(unique_speakers):
+        speaker_map[sp] = f"说话人{i + 1}"
+
+    for seg in segments:
+        seg["speaker"] = speaker_map.get(seg["speaker"], seg["speaker"])
+
+    elapsed = time.time() - start
+    print(f"说话人分离完成，识别到 {len(unique_speakers)} 位说话人 ({elapsed:.1f}s)")
+
+    return segments
 
 
 def format_timestamp(seconds: float) -> str:
@@ -372,19 +472,54 @@ def format_timestamp(seconds: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d}"
 
 
-def format_transcript(result: dict, show_timestamps: bool) -> str:
-    """将 Whisper 结果格式化为逐字稿文本"""
-    lines = []
-    for segment in result["segments"]:
-        text = segment["text"].strip()
-        if not text:
-            continue
-        if show_timestamps:
-            ts = format_timestamp(segment["start"])
-            lines.append(f"[{ts}] {text}")
+def format_transcript(segments: list[dict], show_timestamps: bool) -> str:
+    """将片段列表格式化为逐字稿文本
+
+    如果片段含有 speaker 信息，会按说话人分段，同一人连续发言合并为一段。
+    """
+    has_speakers = any(seg["speaker"] for seg in segments)
+
+    if not has_speakers:
+        # 无说话人信息，简单逐行输出
+        lines = []
+        for seg in segments:
+            if show_timestamps:
+                ts = format_timestamp(seg["start"])
+                lines.append(f"[{ts}] {seg['text']}")
+            else:
+                lines.append(seg["text"])
+        return "\n".join(lines)
+
+    # 有说话人信息：按说话人分段，同一人连续发言合并
+    blocks = []
+    current_speaker = None
+    current_texts = []
+    current_start = 0.0
+
+    for seg in segments:
+        speaker = seg["speaker"]
+        if speaker != current_speaker:
+            # 保存上一段
+            if current_texts:
+                blocks.append((current_speaker, current_start, " ".join(current_texts)))
+            current_speaker = speaker
+            current_texts = [seg["text"]]
+            current_start = seg["start"]
         else:
-            lines.append(text)
-    return "\n".join(lines)
+            current_texts.append(seg["text"])
+
+    # 保存最后一段
+    if current_texts:
+        blocks.append((current_speaker, current_start, " ".join(current_texts)))
+
+    lines = []
+    for speaker, start, text in blocks:
+        if show_timestamps:
+            ts = format_timestamp(start)
+            lines.append(f"[{ts}] **{speaker}**：{text}")
+        else:
+            lines.append(f"**{speaker}**：{text}")
+    return "\n\n".join(lines)
 
 
 # ── 润色：逐字稿 → 可读长文 ─────────────────────────────────
@@ -392,12 +527,16 @@ def format_transcript(result: dict, show_timestamps: bool) -> str:
 POLISH_SYSTEM_PROMPT = """\
 你是一位专业的播客内容编辑。你的任务是将播客逐字稿整理成一篇高可读性的口述风格长文。
 
+## 输入说明
+
+逐字稿中每段以 **说话人N**：开头，说话人标签由声纹识别自动生成。
+
 ## 要求
 
-1. **识别说话人**：根据上下文语气、称谓、角色（主持人/嘉宾）区分不同说话人。
-   如果无法确定具体姓名，使用"主持人""嘉宾A""嘉宾B"等标记。
+1. **保留说话人结构**：保持说话人的分段结构不变。如果从对话内容中能推断出
+   说话人的实际身份（如姓名、主持人/嘉宾），可将"说话人1"替换为实际名字。
 
-2. **合并碎片**：逐字稿中的句子常被切碎，请将同一人连续的发言合并为完整的段落。
+2. **合并碎片**：同一说话人连续的碎片句合并为完整段落。
 
 3. **保留原意**：不要增删观点或信息。可以：
    - 去除口头禅、重复词、无意义的语气词（"嗯""啊""就是说"）
@@ -501,11 +640,27 @@ def main():
         "--no-timestamps", action="store_true", help="不显示时间戳"
     )
     parser.add_argument(
+        "--diarize", action="store_true",
+        help="启用说话人分离，识别不同说话人（需要 HF_TOKEN 和 pyannote.audio）",
+    )
+    parser.add_argument(
+        "--hf-token", help="HuggingFace token（也可通过 HF_TOKEN 环境变量设置）",
+    )
+    parser.add_argument(
+        "--num-speakers", type=int,
+        help="指定说话人数量（可选，不指定则自动检测）",
+    )
+    parser.add_argument(
         "--polish", action="store_true",
         help="使用 Claude 将逐字稿整理为可读的口述长文（需要 ANTHROPIC_API_KEY）",
     )
 
     args = parser.parse_args()
+
+    # --polish 暗含 --diarize（有说话人信息才能产出好的长文）
+    if args.polish and not args.diarize:
+        print("提示: --polish 已自动启用 --diarize（说话人分离）")
+        args.diarize = True
 
     with tempfile.TemporaryDirectory() as tmpdir:
         # 1. 下载音频
@@ -515,15 +670,19 @@ def main():
             print(f"下载失败: {e}", file=sys.stderr)
             sys.exit(1)
 
-        # 2. 转录
+        # 2. 转录（+ 可选说话人分离）
         try:
-            result = transcribe_audio(audio_path, args.model, args.language)
+            segments = transcribe_audio(
+                audio_path, args.model, args.language,
+                diarize=args.diarize, hf_token=args.hf_token,
+                num_speakers=args.num_speakers,
+            )
         except Exception as e:
             print(f"转录失败: {e}", file=sys.stderr)
             sys.exit(1)
 
     # 3. 格式化逐字稿
-    transcript = format_transcript(result, show_timestamps=not args.no_timestamps)
+    transcript = format_transcript(segments, show_timestamps=not args.no_timestamps)
 
     # 4. 可选：润色为可读长文
     if args.polish:
